@@ -1,0 +1,58 @@
+- name: Install MySQL database
+  hosts: Mattermost
+  # If true, Ansible will run every task by becoming (by default) the root user.
+  become: True
+  # A list of variables and values
+  vars:
+    mysql_root_pass: root
+
+  tasks:
+        - name: apt-get update
+          apt:
+            update-cache: yes
+
+        - name: Update all packages to the latest version
+          apt:
+            upgrade: dist
+
+        # - name: Install MySQL Server and dependencies
+        #   apt: >
+        #        name=mysql-server
+        #        update_cache=yes
+
+        - name: Install MySQL and dependencies
+          apt:
+            name: ['python-mysqldb', 'mysql-server', 'wget']
+          # with_items:
+          #   - python-mysqldb
+          #   - mysql-server
+
+        - name: Restart the MySQL service
+          action: service name=mysql state=restarted
+
+        - name: Set root user password in MySQL
+          mysql_user: name=root
+                      password={{ mysql_root_pass }}
+                      check_implicit_admin=yes
+                      login_user=root
+                      login_password={{ mysql_root_pass }}
+                      state=present
+
+        - name: Create the Mattermost database
+          mysql_db: name=mattermost
+                    login_user=root
+                    login_password={{ mysql_root_pass }}
+                    state=present
+
+        - name: Create the Mattermost user ‘mmuser’ in MySQL
+          mysql_user: name=mmuser
+                      password=mmuser-password
+                      priv="mattermost.*:ALL"
+                      login_user=root
+                      login_password={{ mysql_root_pass }}
+                      state=present
+
+        # Check database
+        # mysql -u root -p
+        # USE mysql;
+        # SELECT user, host FROM user;
