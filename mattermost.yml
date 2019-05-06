@@ -1,0 +1,164 @@
+- name: Install and configure Mattermost
+  hosts: Mattermost
+  # If true, Ansible will run every task by becoming (by default) the root user.
+  become: True
+  # A list of variables and values
+  vars:
+    mattermost_user: mattermost
+    mattermost_group: mattermost
+
+  tasks:
+        - name: Download Mattermost from remote server
+          unarchive:
+            src: "https://releases.mattermost.com/5.7.1/mattermost-5.7.1-linux-amd64.tar.gz"
+            dest: /opt
+            remote_src: "yes"
+
+        # - name: Download mattermost from remote server
+        #   shell: wget -N https://releases.mattermost.com/5.7.1/mattermost-5.7.1-linux-amd64.tar.gz -P /tmp/
+        #          warn=false
+        #
+        # - name: Extract the Mattermost Server files
+        #   unarchive:
+        #     src: /tmp/mattermost-5.7.1-linux-amd64.tar.gz
+        #     dest: /opt
+        #     remote_src: yes
+
+        - name: Create the storage directory for files
+          file:
+            path: /opt/mattermost/data
+            state: directory
+
+        - name: Create the Mattermost group
+          group:
+            name="{{ mattermost_group }}"
+            state=present
+
+        - name: Create the Mattermost user
+          user:
+            name="{{ mattermost_user }}"
+            system=yes
+            group="{{ mattermost_group }}"
+            state=present
+
+        # list all users
+        # less /etc/passwd to check added users
+
+        - name: Set the user and group mattermost as the owner of the Mattermost files
+          file:
+            path=/opt/mattermost
+            owner="{{ mattermost_user }}"
+            group="{{ mattermost_group }}"
+            recurse=yes
+
+        - name: Give write permissions to the mattermost group
+          file:
+            dest=/opt/mattermost
+            mode=g+w
+            recurse=yes
+
+        - name: Set up MySQL database driver and modify config.json for mattermost
+          copy:
+            src: config.json
+            dest: /opt/mattermost/config
+            owner: "{{ mattermost_user }}"
+            group: "{{ mattermost_group }}"
+            mode: 0664
+
+        # - name: Start the Mattermost server as the user mattermost
+        #   sudo: true
+        #   sudo_user: mattermost
+        #   shell: ./bin/mattermost
+        #   args:
+        #     chdir: /opt/mattermost
+
+        - name: Create a systemd unit file
+          copy:
+            src: mattermost.service
+            dest: /lib/systemd/system
+            owner: "{{ mattermost_user }}"
+            group: "{{ mattermost_group }}"
+            mode: 0664
+
+        - name: Make systemd load the new unit.
+          systemd:
+            daemon_reload: yes
+
+        # - name: Make systemd load the new unit.
+        #   sudo: True
+        #   command: systemctl daemon-reload
+
+        - name: Start the service.
+          systemd:
+            name: mattermost.service
+            state: started
+
+        # - name: Start the service.
+        #   sudo: True
+        #   command: systemctl start mattermost.service
+
+        - name: Set Mattermost to start on machine start up.
+          systemd:
+            name: mattermost.service
+            enabled: yes
+
+        # - name: Check to make sure that the unit was loaded.
+        #   sudo: True
+        #   command: systemctl status mattermost.service
+        #
+        # - name: Set Mattermost to start on machine start up.
+        #   sudo: True
+        #   command: systemctl enable mattermost.service
+
+        # # sudo -u mattermost bash
+
+        - name: Restart the mattermost service.
+          systemd:
+            name: mattermost.service
+            state: restarted
+
+        # - name: Restart the Mattermost Service
+        #   sudo: True
+        #   command: systemctl restart mattermost
+
+        - name: Check if admin user exists
+          command: 'sudo -u mattermost /opt/mattermost/bin/mattermost user search admin@example.com'
+          register: AdminInfo
+
+        - name: Create admin user
+          command: "sudo -u mattermost /opt/mattermost/bin/mattermost user create --firstname admin --system_admin --email admin@example.com --username admin --password Password1"
+          when: "'Unable to find user' in AdminInfo.stderr"
+          ignore_errors: true
+
+        - name: Check if a user exists
+          command: 'sudo -u mattermost /opt/mattermost/bin/mattermost user search rshu@ncsu.edu'
+          register: UserInfo
+
+        - name: Create a new user
+          command: "sudo -u mattermost /opt/mattermost/bin/mattermost user create --email rshu@ncsu.edu --username rshu --password 123456"
+          when: "'Unable to find user' in UserInfo.stderr"
+          ignore_errors: true
+
+        - name: List existing teams
+          command: "sudo -u mattermost /opt/mattermost/bin/mattermost team list"
+          register: teamList_result
+
+        - name: Print exising teams
+          debug:
+            msg: "{{ teamList_result.stderr_lines }}"
+
+        - name: Create the first team if does not exist
+          command: sudo -u mattermost /opt/mattermost/bin/mattermost team create --name devops --display_name "Dev Ops"
+          when: '"devops" not in teamList_result.stderr_lines'
+        #
+        - name: Add the user to the team
+          command: "sudo -u mattermost /opt/mattermost/bin/mattermost team add devops rshu@ncsu.edu rshu"
+
+        - name: Restart the mattermost service.
+          systemd:
+            name: mattermost.service
+            state: restarted
+
+        # - name: Restart the Mattermost Service
+        #   sudo: True
+        #   command: "systemctl restart mattermost"
